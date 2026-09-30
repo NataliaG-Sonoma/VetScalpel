@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonoma Capital - Equipment Financing Quote Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <script>
+    // ========== SETTINGS ==========
+    const SETTINGS = {
+        vendorName: "LightScalpel Inc.",  // UPDATE THIS for each vendor
+        contactName: "Natalia Gallegos",
+        contactEmail: "natalia.gallegos@sonomacapital.ca",
+        contactPhone: "(604) 349-6169",
+        applicationURL: "sonoma_credit_application.html",
+        
+        // Pre-filled rep info for Kerry Kooi
+        defaultRepName: "Kerry Kooi",
+        defaultRepEmail: "KKooi@VetScalpel.com",
+        defaultRepPhone: "+1 (204) 408-8371",
+        
+        // Quote validity
+        quoteValidDays: 30,  // Quote expires after 30 days
+        
+        // Rates (Updated per Medical Vertical Pricing Reference, September 2026)
+        rateTier1: 10.00,    // $10,000 - $20,000
+        rateTier2: 9.75,     // $20,001 - $30,000
+        rateTier3: 9.25,     // $30,001 - $40,000
+        rateTier4: 8.75,     // $40,001 - $70,000
+        rateTier5: 7.95,     // $70,001 - $150,000
+        rateTier6: 7.75,     // $150,001 - $300,000
+        rateTier7: 7.50,     // $300,000+
+        
+        docFee: 295,
+        purchaseOption: 100      // Lease buyout / residual at end of term - matches medical vertical standard
+    };
+    // ========== END SETTINGS ==========
+
+    // ========== EXCHANGE RATE ==========
+    let cadUsdRate = 1.38; // fallback rate
+    let rateSource = 'fallback';
+    let rateFetchDate = '';
+
+    async function fetchExchangeRate() {
+        try {
+            const res = await fetch('https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json?recent=1');
+            const data = await res.json();
+            const obs = data.observations;
+            if (obs && obs.length > 0) {
+                cadUsdRate = parseFloat(obs[obs.length - 1].FXUSDCAD.v);
+                rateFetchDate = obs[obs.length - 1].d;
+                rateSource = 'Bank of Canada';
+                document.getElementById('fxRateDisplay').textContent = cadUsdRate.toFixed(4);
+                document.getElementById('fxRateDate').textContent = rateFetchDate;
+                document.getElementById('fxRateSource').textContent = 'Bank of Canada (live)';
+                updateCadEquivalent();
+            }
+        } catch(e) {
+            document.getElementById('fxRateSource').textContent = 'Using fallback rate - check connection';
+            updateCadEquivalent();
+        }
+    }
+
+    function updateCadEquivalent() {
+        const usd = parseFloat(document.getElementById('equipmentCostUSD').value) || 0;
+        const cad = usd * cadUsdRate;
+        document.getElementById('cadEquivalent').textContent = cad > 0 ? 'CAD ' + cad.toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '--';
+        document.getElementById('equipmentCost').value = cad > 0 ? Math.round(cad * 100) / 100 : '';
+    }
+    // ========== END EXCHANGE RATE ==========
+
+    // Translations
+    const TRANSLATIONS = {
+        en: {
+            language: "Language",
+            english: "English",
+            french: "Français",
+            equipmentFinancing: "Equipment Financing Quote Generator",
+            quoteGenerator: "Equipment Financing Quote Generator",
+            quoteSubtitle: "Complete the fields below to generate an instant financing quote",
+            
+            repInfo: "Vendor Representative Information",
+            customerInfo: "Customer Information",
+            financingDetails: "Financing Details",
+            termSelection: "Select Term(s) to Quote",
+            paymentOptions: "Payment Options",
+            
+            repName: "Vendor Representative Name",
+            repEmail: "Your Email",
+            repPhone: "Your Phone",
+            equipmentQuote: "Vendor Quote #",
+            quoteDate: "Quote Date",
+            customerLegalName: "Business Legal Name",
+            customerContactName: "Customer Contact Name",
+            customerContactEmail: "Customer Contact Email",
+            customerPhone: "Customer Phone",
+            equipmentDescLabel: "Equipment Description",
+            equipmentDescPlaceholder: "e.g., Ultrasound System, 2024, GE, LOGIQ E10, SN: 12345678",
+            equipmentCost: "Pre-tax Equipment Cost",
+            minimum: "Minimum",
+            extendedWarranty: "Extended Warranty Purchased?",
+            yes: "Yes",
+            no: "No",
+            warrantyCost: "Pre-tax Warranty Cost",
+            selectTerms: "Choose one or more financing terms",
+            months: "months",
+            paymentSchedule: "Payment Schedule",
+            regularPayments: "Standard",
+            deferredPayments: "Skip 2 Payments",
+            deferred90Days: "Skip 3 Payments",
+            bothPayments: "Show All Options",
+            
+            generateQuote: "Generate Quote",
+            
+            financingSummary: "Financing Summary",
+            equipmentCostLabel: "Pre-tax Equipment Cost",
+            extendedWarrantyLabel: "Pre-tax Extended Warranty",
+            totalEquipmentCost: "Total Equipment Cost",
+            purchaseOptionLabel: "Lease Buyout",
+            
+            paymentComparison: "Payment Comparison",
+            term: "Term",
+            monthlyPayment: "Monthly Payment",
+            regularPayment: "Standard",
+            deferredPayment: "Skip 2 Payments",
+            deferredFootnote: "* First regular payment begins approximately 3 months after equipment delivery.",
+            touchPaymentsNote: "$99 initial payment, then $0 until regular payments begin,",
+            regularPaymentsNote: "regular payments",
+            
+            nextSteps: "Next Steps",
+            step1: "Download the Quote PDF",
+            step2: "Email the Quote to Your Customer",
+            quoteSuccess: "✅ Quote Generated Successfully!",
+            downloadPDF: "Download Quote PDF",
+            emailClient: "Email Quote to Client",
+            attachReminder: "Remember to attach the downloaded Quote PDF to the email before sending.",
+            hideResults: "Hide Quote Results",
+            copyEmail: "Copy Email Template",
+            newQuote: "Start New Quote",
+            
+            emailTo: "To:",
+            emailSubject: "Subject:",
+            emailMessage: "Message:",
+            
+            noteMin: "$10,000"
+        },
+        fr: {
+            language: "Langue",
+            english: "English",
+            french: "Français",
+            equipmentFinancing: "Générateur de soumission de financement d'équipement",
+            quoteGenerator: "Générateur de soumission de financement d'équipement",
+            quoteSubtitle: "Remplissez les champs ci-dessous pour générer une soumission instantanée",
+            
+            repInfo: "Informations du représentant du fournisseur",
+            customerInfo: "Informations sur le client",
+            financingDetails: "Détails du financement",
+            termSelection: "Sélectionner le(s) terme(s) à soumettre",
+            paymentOptions: "Options de paiement",
+            
+            repName: "Nom du représentant du fournisseur",
+            repEmail: "Votre courriel",
+            repPhone: "Votre téléphone",
+            equipmentQuote: "Numéro de soumission d'équipement",
+            quoteDate: "Date de soumission",
+            customerLegalName: "Nom légal de l'entreprise",
+            customerContactName: "Nom du contact client",
+            customerContactEmail: "Courriel du contact client",
+            customerPhone: "Téléphone du client",
+            equipmentDescLabel: "Description de l'équipement",
+            equipmentDescPlaceholder: "p. ex., Système d'échographie, 2024, GE, LOGIQ E10, N/S: 12345678",
+            equipmentCost: "Coût de l'équipement (avant taxes)",
+            minimum: "Minimum",
+            extendedWarranty: "Garantie prolongée achetée?",
+            yes: "Oui",
+            no: "Non",
+            warrantyCost: "Coût de la garantie (avant taxes)",
+            selectTerms: "Choisissez un ou plusieurs termes de financement",
+            months: "mois",
+            paymentSchedule: "Calendrier de paiement",
+            regularPayments: "Standard",
+            deferredPayments: "Premier paiement au mois 3",
+            deferred90Days: "Premier paiement au mois 4",
+            bothPayments: "Afficher toutes les options",
+            
+            generateQuote: "Générer la soumission",
+            
+            financingSummary: "Résumé du financement",
+            equipmentCostLabel: "Coût de l'équipement (avant taxes)",
+            extendedWarrantyLabel: "Garantie prolongée (avant taxes)",
+            totalEquipmentCost: "Coût total de l'équipement",
+            purchaseOptionLabel: "Rachat de location",
+            
+            paymentComparison: "Comparaison des paiements",
+            term: "Terme",
+            monthlyPayment: "Paiement mensuel",
+            regularPayment: "Standard",
+            deferredPayment: "Premier paiement au mois 3",
+            deferredFootnote: "* Le premier paiement régulier commence environ 3 mois après la livraison de l'équipement.",
+            touchPaymentsNote: "99 $ paiement initial, puis 0 $ jusqu'aux paiements réguliers,",
+            regularPaymentsNote: "paiements réguliers",
+            
+            nextSteps: "Prochaines étapes",
+            step1: "Télécharger la soumission PDF",
+            step2: "Envoyer la soumission à votre client",
+            quoteSuccess: "✅ Soumission générée avec succès !",
+            downloadPDF: "Télécharger la soumission PDF",
+            emailClient: "Envoyer la soumission au client",
+            attachReminder: "N'oubliez pas de joindre la soumission PDF téléchargée à l'email avant d'envoyer.",
+            hideResults: "Masquer les résultats",
+            copyEmail: "Copier le modèle de courriel",
+            newQuote: "Nouvelle soumission",
+            
+            emailTo: "À:",
+            emailSubject: "Objet:",
+            emailMessage: "Message:",
+            
+            noteMin: "10 000 $"
+        }
+    };
+    
+    let currentLang = 'en';
+    let quoteData = {};
+    
+    function t(key) {
+        return TRANSLATIONS[currentLang][key] || key;
+    }
+    
+    function switchLanguage(lang) {
+        currentLang = lang;
+        updatePageLanguage();
+    }
+    
+    function updatePageLanguage() {
+        document.querySelectorAll('[data-translate]').forEach(element => {
+            const key = element.getAttribute('data-translate');
+            element.textContent = t(key);
+        });
+        
+        document.querySelectorAll('[data-translate-placeholder]').forEach(element => {
+            const key = element.getAttribute('data-translate-placeholder');
+            element.placeholder = t(key);
+        });
+    }
+    
+    function getRate(amount) {
+        if (amount <= 20000) return SETTINGS.rateTier1;
+        if (amount <= 30000) return SETTINGS.rateTier2;
+        if (amount <= 40000) return SETTINGS.rateTier3;
+        if (amount <= 70000) return SETTINGS.rateTier4;
+        if (amount <= 150000) return SETTINGS.rateTier5;
+        if (amount <= 300000) return SETTINGS.rateTier6;
+        return SETTINGS.rateTier7;
+    }
+    
+    function calculateMonthlyPayment(principal, annualRate, months) {
+        const monthlyRate = annualRate / 100 / 12;
+        const fv = SETTINGS.purchaseOption; // SETTINGS.purchaseOption residual / lease buyout
+        // Standard lease payment formula with residual (future value)
+        const pvFactor = Math.pow(1 + monthlyRate, months);
+        return (monthlyRate * (principal - fv / pvFactor)) / (1 - 1 / pvFactor);
+    }
+    
+    function calculateDeferredPayment(principal, annualRate, months) {
+        const monthlyRate = annualRate / 100 / 12;
+        const touchPayment = 99;
+        const reducedPrincipal = principal - 99; // month 1: $99, month 2: $0
+        const accruedPrincipal = reducedPrincipal * Math.pow(1 + monthlyRate, 2);
+        const regularPaymentMonths = months - 2;
+        const fv = SETTINGS.purchaseOption; // SETTINGS.purchaseOption residual / lease buyout
+        // Lease payment formula with residual applied to accrued principal
+        const pvFactor = Math.pow(1 + monthlyRate, regularPaymentMonths);
+        const regularPayment = (monthlyRate * (accruedPrincipal - fv / pvFactor)) / (1 - 1 / pvFactor);
+        return {
+            touchPayment: touchPayment,
+            regularPayment: regularPayment,
+            numberOfRegularPayments: regularPaymentMonths
+        };
+    }
+    
+    function calculateDeferred90Payment(principal, annualRate, months) {
+        const monthlyRate = annualRate / 100 / 12;
+        const touchPayment = 99;
+        const reducedPrincipal = principal - 99; // month 1: $99, months 2-3: $0
+        const accruedPrincipal = reducedPrincipal * Math.pow(1 + monthlyRate, 3);
+        const regularPaymentMonths = months - 3;
+        const fv = SETTINGS.purchaseOption; // SETTINGS.purchaseOption residual / lease buyout
+        // Lease payment formula with residual applied to accrued principal
+        const pvFactor = Math.pow(1 + monthlyRate, regularPaymentMonths);
+        const regularPayment = (monthlyRate * (accruedPrincipal - fv / pvFactor)) / (1 - 1 / pvFactor);
+        return {
+            touchPayment: touchPayment,
+            regularPayment: regularPayment,
+            numberOfRegularPayments: regularPaymentMonths
+        };
+    }
+    
+    function formatCurrency(amount) {
+        return new Intl.NumberFormat('en-CA', {
+            style: 'currency',
+            currency: 'CAD',
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }).format(amount);
+    }
+    
+    function toggleWarrantyCost() {
+        const hasWarranty = document.getElementById('warrantyYes').checked;
+        const costField = document.getElementById('warrantyCostField');
+        costField.style.display = hasWarranty ? 'block' : 'none';
+        if (!hasWarranty) {
+            document.getElementById('warrantyCost').value = '';
+        }
+    }
+    </script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Montserrat', sans-serif;
+        }
+        
+        .sonoma-blue { color: #189AD6; }
+        .sonoma-bg-blue { background-color: #189AD6; }
+        .sonoma-navy { color: #091F40; }
+        .sonoma-bg-navy { background-color: #091F40; }
+        .sonoma-teal { color: #091F40; }
+        .sonoma-bg-teal { background-color: #091F40; }
+        
+        .term-checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+        
+        .copy-box {
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #e5e7eb;
+            font-family: monospace;
+            font-size: 14px;
+            position: relative;
+            margin-top: 10px;
+        }
+        
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 6px 14px;
+            background: #091F40;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            font-family: 'Montserrat', sans-serif;
+        }
+        
+        .copy-btn:hover {
+            background: #189AD6;
+        }
+        
+        .email-template {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #e5e7eb;
+            white-space: pre-line;
+            font-size: 14px;
+            line-height: 1.8;
+            color: #374151;
+            margin-top: 10px;
+            position: relative;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <div class="sonoma-bg-navy py-6 px-8 shadow-lg">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="text-white">
+                <h1 class="text-2xl font-bold">Sonoma Capital</h1>
+                <p class="text-sm text-gray-300" data-translate="equipmentFinancing">Equipment Financing Quote Generator</p>
+            </div>
+            <div class="text-right">
+                <p class="text-sm font-semibold sonoma-blue">Supporting Your Growth</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="min-h-screen py-8 px-4">
+        <div class="max-w-6xl mx-auto">
+            <!-- Form Section -->
+            <div id="formSection" class="bg-white rounded-xl shadow-xl overflow-hidden mb-8">
+                <div class="sonoma-bg-blue text-white px-8 py-6 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-2xl font-bold" data-translate="quoteGenerator">Equipment Financing Quote Generator</h2>
+                        <p class="text-sm mt-1 text-blue-100" data-translate="quoteSubtitle">Complete the fields below to generate an instant financing quote</p>
+                    </div>
+                    <!-- Language Selector -->
+                    <div class="no-print">
+                        <label class="block text-sm font-medium mb-2" data-translate="language">Language</label>
+                        <select onchange="switchLanguage(this.value)" class="px-4 py-2 rounded-lg text-gray-900 font-semibold">
+                            <option value="en" data-translate="english">English</option>
+                            <option value="fr" data-translate="french">Français</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="p-8">
+                <form id="quoteForm" onsubmit="generateQuote(event)">
+                    <!-- Representative Information -->
+                    <div class="mb-8">
+                        <h3 class="font-semibold text-lg sonoma-teal border-b-2 border-blue-200 pb-2 mb-4" data-translate="repInfo">Vendor Representative Information</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <span data-translate="repName">Vendor Representative Name</span> <span class="text-red-600">*</span>
+                                </label>
+                                <input type="text" id="repName" required class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <span data-translate="repEmail">Your Email</span> <span class="text-red-600">*</span>
+                                </label>
+                                <input type="email" id="repEmail" required class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <span data-translate="repPhone">Your Phone</span> <span class="text-red-600">*</span>
+                                </label>
+                                <input type="tel" id="repPhone" required class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <span data-translate="equipmentQuote">Vendor Quote #</span>
+                                </label>
+                                <input type="text" id="quoteNum" class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <span data-translate="quoteDate">Quote Date</span> <span class="text-red-600">*</span>
+                                </label>
+                                <input type="date" id="quoteDate" required class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Customer Information -->
+                    <div class="mb-8">
+                        <h3 class="font-semibold text-lg sonoma-teal border-b-2 border-blue-200 pb-2 mb-4" data-translate="customerInfo">Customer Information</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <span data-translate="customerLegalName">Business Legal Name</span> <span class="text-red-600">*</span>
+                                </label>
+                                <input type="text" id="customerName" required class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <span data-translate="customerContactName">Customer Contact Name</span> <span class="text-red-600">*</span>
+                                </label>
+                                <input type="text" id="customerContactName" required class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <span data-translate="customerContactEmail">Customer Contact Email</span> <span class="text-red-600">*</span>
+                                </label>
+                                <input type="email" id="customerEmail" required class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <span data-translate="customerPhone">Customer Phone</span> <span class="text-red-600">*</span>
+                                </label>
+                                <input type="tel" id="customerPhone" required class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400" placeholder="e.g. 604-555-0100">
+                            </div>
+                        </div>
+
+                        <!-- Equipment Description -->
+                        <div class="mt-6">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <span data-translate="equipmentDescLabel">Equipment Description</span> <span class="text-red-600">*</span>
+                            </label>
+                            <input type="text" id="equipmentDescription" required
+                                class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400"
+                                data-translate-placeholder="equipmentDescPlaceholder" placeholder="e.g., Ultrasound System, 2024, GE, LOGIQ E10, SN: 12345678">
+                        </div>
+                    </div>
+                    
+                    <!-- Financing Details -->
+                    <div class="mb-8">
+                        <h3 class="font-semibold text-lg sonoma-teal border-b-2 border-blue-200 pb-2 mb-4" data-translate="financingDetails">Financing Details</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div class="lg:col-span-3">
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            VetScalpel Quote Price (USD) <span class="text-red-600">*</span>
+                                        </label>
+                                        <div class="relative">
+                                            <span class="absolute left-3 top-2 text-gray-500 font-medium">USD</span>
+                                            <input type="number" id="equipmentCostUSD" required min="1" step="1"
+                                                class="w-full pl-14 pr-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400"
+                                                placeholder="49768" oninput="updateCadEquivalent()">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Exchange Rate (USD/CAD)</label>
+                                        <input type="number" id="fxRateDisplay" step="0.0001" min="1"
+                                            class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400"
+                                            value="1.3800" oninput="cadUsdRate=parseFloat(this.value)||1.38; updateCadEquivalent();">
+                                        <p class="text-xs text-gray-500 mt-1">Source: <span id="fxRateSource">Loading...</span> &nbsp;|&nbsp; <span id="fxRateDate"></span></p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">CAD Equivalent (auto-calculated)</label>
+                                        <div class="w-full px-4 py-2 border-2 border-gray-200 bg-gray-50 rounded-lg text-gray-700 font-semibold" id="cadEquivalent">--</div>
+                                        <p class="text-xs text-gray-500 mt-1">This amount will be financed in CAD</p>
+                                    </div>
+                                </div>
+                                <!-- Hidden CAD field used for all calculations -->
+                                <input type="hidden" id="equipmentCost">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2" data-translate="extendedWarranty">Extended Warranty Purchased?</label>
+                                <div class="flex items-center space-x-4 mt-2">
+                                    <label class="flex items-center">
+                                        <input type="radio" name="warranty" id="warrantyYes" value="yes" onchange="toggleWarrantyCost()" class="mr-2">
+                                        <span data-translate="yes">Yes</span>
+                                    </label>
+                                    <label class="flex items-center">
+                                        <input type="radio" name="warranty" id="warrantyNo" value="no" checked onchange="toggleWarrantyCost()" class="mr-2">
+                                        <span data-translate="no">No</span>
+                                    </label>
+                                </div>
+                                <div id="warrantyCostField" style="display: none;" class="mt-4">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2" data-translate="warrantyCost">Pre-tax Warranty Cost</label>
+                                    <input type="text" id="warrantyCost" class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-400" placeholder="5000">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Term Selection -->
+                    <div class="mb-8">
+                        <h3 class="font-semibold text-lg sonoma-teal border-b-2 border-blue-200 pb-2 mb-4" data-translate="termSelection">Select Term(s) to Quote</h3>
+                        <p class="text-sm text-gray-600 mb-4" data-translate="selectTerms">Choose one or more financing terms</p>
+                        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                            <label class="flex items-center space-x-2 p-4 border-2 border-gray-300 rounded-lg hover:border-blue-400 cursor-pointer">
+                                <input type="checkbox" name="term" value="24" class="term-checkbox">
+                                <span class="font-semibold">24 <span data-translate="months">months</span></span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-4 border-2 border-gray-300 rounded-lg hover:border-blue-400 cursor-pointer">
+                                <input type="checkbox" name="term" value="36" class="term-checkbox">
+                                <span class="font-semibold">36 <span data-translate="months">months</span></span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-4 border-2 border-gray-300 rounded-lg hover:border-blue-400 cursor-pointer">
+                                <input type="checkbox" name="term" value="48" class="term-checkbox">
+                                <span class="font-semibold">48 <span data-translate="months">months</span></span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-4 border-2 border-gray-300 rounded-lg hover:border-blue-400 cursor-pointer">
+                                <input type="checkbox" name="term" value="60" class="term-checkbox">
+                                <span class="font-semibold">60 <span data-translate="months">months</span></span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-4 border-2 border-gray-300 rounded-lg hover:border-blue-400 cursor-pointer">
+                                <input type="checkbox" name="term" value="72" class="term-checkbox">
+                                <span class="font-semibold">72 <span data-translate="months">months</span></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Payment Options -->
+                    <div class="mb-8">
+                        <h3 class="font-semibold text-lg sonoma-teal border-b-2 border-blue-200 pb-2 mb-4" data-translate="paymentOptions">Payment Options</h3>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2" data-translate="paymentSchedule">Payment Schedule</label>
+                            <select id="paymentSchedule" class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg">
+                                <option value="regular" selected data-translate="regularPayments">Standard</option>
+                                <option value="deferred" data-translate="deferredPayments">Skip 2 Payments</option>
+                                <option value="deferred90" data-translate="deferred90Days">Skip 3 Payments</option>
+                                <option value="both" data-translate="bothPayments">Show All Options</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end">
+                        <button type="submit" class="px-8 py-4 sonoma-bg-blue text-white rounded-lg hover:bg-opacity-90 font-semibold shadow-lg transition-all text-lg">
+                            <span data-translate="generateQuote">Generate Quote</span>
+                        </button>
+                    </div>
+                </form>
+                </div>
+            </div>
+            
+            <!-- Results Section -->
+            <div id="resultsSection" class="hidden">
+                <div class="bg-white rounded-xl shadow-xl p-8 mb-8">
+                    <div class="text-center mb-8 pb-6 border-b-2 border-gray-200">
+                        <div class="inline-block px-6 py-3 bg-green-100 text-green-800 rounded-lg font-bold text-lg mb-4">
+                            <span data-translate="quoteSuccess">✅ Quote Generated Successfully!</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Quote Display -->
+                    <div id="quoteDisplay" class="mb-8">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                    
+                    <!-- Next Steps -->
+                    <div class="bg-gray-50 rounded-lg p-6 mb-6">
+                        <h3 class="text-xl font-bold sonoma-teal mb-4" data-translate="nextSteps">Next Steps</h3>
+
+                        <!-- Two buttons side by side -->
+                        <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px;">
+                            <button onclick="downloadQuotePDF()"
+                                style="display:inline-flex; align-items:center; gap:8px; background:#091F40; color:white; border:none; border-radius:10px; padding:14px 28px; font-size:15px; font-weight:700; cursor:pointer; font-family:'Montserrat',sans-serif; box-shadow:0 4px 12px rgba(26,84,104,0.25); transition:all 0.2s;">
+                                📄 <span data-translate="downloadPDF">Download Quote PDF</span>
+                            </button>
+                            <a id="emailClientBtn" href="#"
+                                style="display:inline-flex; align-items:center; gap:8px; background:linear-gradient(135deg,#189AD6 0%,#091F40 100%); color:white; text-decoration:none; border-radius:10px; padding:14px 28px; font-size:15px; font-weight:700; font-family:'Montserrat',sans-serif; box-shadow:0 4px 12px rgba(34,167,223,0.3); transition:all 0.2s;">
+                                ✉ <span data-translate="emailClient">Email Quote to Client</span>
+                            </a>
+                        </div>
+
+                        <!-- Reminder note -->
+                        <div style="background:#fef9ee; border:1px solid #fbbf24; border-radius:8px; padding:11px 16px; font-size:13px; color:#92400e; display:flex; gap:10px; align-items:flex-start;">
+                            <span style="font-size:16px; flex-shrink:0;">📎</span>
+                            <span data-translate="attachReminder">Remember to attach the downloaded Quote PDF to the email before sending.</span>
+                        </div>
+                    </div>
+                    
+                    <button onclick="document.getElementById('resultsSection').classList.add('hidden'); document.getElementById('quoteForm').scrollIntoView({ behavior: 'smooth' });" class="w-full px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-semibold">
+                        <span data-translate="hideResults">Hide Quote Results</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    function generateQuote(event) {
+        event.preventDefault();
+        
+        // Collect data
+        const repName = document.getElementById('repName').value;
+        const repEmail = document.getElementById('repEmail').value;
+        const repPhone = document.getElementById('repPhone').value;
+        const quoteNum = document.getElementById('quoteNum').value;
+        const quoteDate = document.getElementById('quoteDate').value;
+        const customerName = document.getElementById('customerName').value;
+        const customerContactName = document.getElementById('customerContactName').value;
+        const customerEmail = document.getElementById('customerEmail').value;
+        const customerPhone = document.getElementById('customerPhone').value;
+        const equipmentCost = parseFloat(document.getElementById('equipmentCost').value);
+        const hasWarranty = document.getElementById('warrantyYes').checked;
+        const warrantyCost = hasWarranty ? parseFloat(document.getElementById('warrantyCost').value.replace(/[^0-9.]/g, '') || 0) : 0;
+        
+        // Get selected terms
+        const selectedTerms = Array.from(document.querySelectorAll('input[name="term"]:checked')).map(cb => parseInt(cb.value));
+        
+        if (selectedTerms.length === 0) {
+            alert('Please select at least one financing term');
+            return;
+        }
+        
+        const paymentSchedule = document.getElementById('paymentSchedule').value;
+        
+        // Store quote data
+        quoteData = {
+            repName, repEmail, repPhone, quoteNum, quoteDate,
+            customerName, customerContactName, customerEmail, customerPhone,
+            equipmentDescription: document.getElementById('equipmentDescription').value.trim(),
+            equipmentCost, hasWarranty, warrantyCost,
+            selectedTerms, paymentSchedule,
+            equipmentCostUSD: parseFloat(document.getElementById('equipmentCostUSD').value) || 0,
+            fxRate: cadUsdRate,
+            fxRateDate: rateFetchDate
+        };
+        
+        // Next Steps - no application link in new workflow
+
+        // Build mailto link for Email Quote to Client button
+        buildEmailClientLink(customerContactName, customerEmail, repName, repPhone, repEmail);
+
+        // Display quote
+        displayQuote();
+        
+        // Show results section (keep form visible)
+        document.getElementById('resultsSection').classList.remove('hidden');
+        
+        // Scroll to results
+        document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    function displayQuote() {
+        const { equipmentCost, hasWarranty, warrantyCost, selectedTerms, paymentSchedule } = quoteData;
+        const totalEquipmentCost = equipmentCost + (hasWarranty ? warrantyCost : 0);
+        const totalFinanced = totalEquipmentCost + SETTINGS.docFee; // Doc fee is rolled into the financed amount at Sonoma
+        const rate = getRate(totalFinanced);
+        
+        let html = `
+            <div class="mb-6">
+                <h3 class="text-lg font-bold sonoma-teal mb-4" data-translate="financingSummary">${t('financingSummary')}</h3>
+                <div class="bg-gray-50 p-6 rounded-lg space-y-3">
+                    <div class="flex justify-between">
+                        <span class="font-medium text-gray-600" style="grid-column:span 2; font-size:13px; padding-bottom:4px;">${currentLang === "fr" ? "Équipement" : "Equipment"}: ${quoteData.equipmentDescription}</span>
+                        <span class="font-medium" data-translate="equipmentCostLabel">${t('equipmentCostLabel')}</span>
+                        <span class="font-bold">${formatCurrency(equipmentCost)}</span>
+                    </div>`;
+        
+        if (hasWarranty && warrantyCost > 0) {
+            html += `
+                    <div class="flex justify-between">
+                        <span class="font-medium" data-translate="extendedWarrantyLabel">${t('extendedWarrantyLabel')}</span>
+                        <span class="font-bold">${formatCurrency(warrantyCost)}</span>
+                    </div>`;
+        }
+        
+        html += `
+                    <div class="border-t border-gray-300 pt-3 mt-3 flex justify-between">
+                        <span class="font-semibold text-lg" data-translate="totalEquipmentCost">${t('totalEquipmentCost')}</span>
+                        <span class="font-bold text-lg sonoma-blue">${formatCurrency(totalEquipmentCost)}</span>
+                    </div>
+                </div>
+            </div>`;
+        
+
+        
+        html += `
+            <div>
+                <h3 class="text-lg font-bold sonoma-teal mb-4" data-translate="paymentComparison">${t('paymentComparison')}</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="sonoma-bg-teal text-white">
+                                <th class="p-3 text-left" data-translate="term">${t('term')}</th>`;
+        
+        if (paymentSchedule === 'both' || paymentSchedule === 'regular') {
+            html += `<th class="p-3 text-left" data-translate="regularPayment">${t('regularPayment')}</th>`;
+        }
+        if (paymentSchedule === 'both' || paymentSchedule === 'deferred') {
+            html += `<th class="p-3 text-left" data-translate="deferredPayment">${t('deferredPayment')}</th>`;
+        }
+        if (paymentSchedule === 'both' || paymentSchedule === 'deferred90') {
+            html += `<th class="p-3 text-left" data-translate="deferred90Days">${t('deferred90Days')}</th>`;
+        }
+        
+        html += `
+                            </tr>
+                        </thead>
+                        <tbody>`;
+        
+        selectedTerms.forEach((term, index) => {
+            const regularPayment = calculateMonthlyPayment(totalFinanced, rate, term);
+            const deferredPayment = calculateDeferredPayment(totalFinanced, rate, term);
+            const deferred90Payment = calculateDeferred90Payment(totalFinanced, rate, term);
+            
+            html += `
+                            <tr class="${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}">
+                                <td class="p-3 font-semibold">${term} ${t('months')}</td>`;
+            
+            if (paymentSchedule === 'both' || paymentSchedule === 'regular') {
+                html += `<td class="p-3">
+                                    <div class="font-semibold">${formatCurrency(regularPayment)} + tax</div>
+                                    <div class="text-xs text-gray-600">${currentLang === "fr" ? `${term} paiements` : `${term} payments`}</div>
+                                </td>`;
+            }
+            if (paymentSchedule === 'both' || paymentSchedule === 'deferred') {
+                html += `
+                                <td class="p-3">
+                                    <div class="font-semibold text-blue-600">${formatCurrency(deferredPayment.regularPayment)} + tax</div>
+                                    <div class="text-xs text-gray-600">${currentLang === "fr" ? `${deferredPayment.numberOfRegularPayments} paiements` : `${deferredPayment.numberOfRegularPayments} payments`}</div>
+                                </td>`;
+            }
+            if (paymentSchedule === 'both' || paymentSchedule === 'deferred90') {
+                html += `
+                                <td class="p-3">
+                                    <div class="font-semibold text-blue-600">${formatCurrency(deferred90Payment.regularPayment)} + tax</div>
+                                    <div class="text-xs text-gray-600">${currentLang === "fr" ? `${deferred90Payment.numberOfRegularPayments} paiements` : `${deferred90Payment.numberOfRegularPayments} payments`}</div>
+                                </td>`;
+            }
+            
+            html += `</tr>`;
+        });
+        
+        html += `
+                        </tbody>
+                    </table>
+                </div>`;
+
+        if (paymentSchedule === 'both' || paymentSchedule === 'deferred') {
+
+        }
+
+        html += `</div>`;
+        
+        document.getElementById('quoteDisplay').innerHTML = html;
+        updatePageLanguage();
+    }
+    
+    function buildEmailClientLink(contactName, clientEmail, repName, repPhone, repEmail) {
+        const bccEmail = 'natalia.gallegos@sonomacapital.ca';
+        const body =
+`Hi ${contactName},
+
+I have attached your equipment financing quote from Sonoma Capital for your review.
+
+A Sonoma Capital Business Development Manager will be in touch with you within a business day to walk you through your options and help you get started.
+
+In the meantime, please don't hesitate to reach out to me with any questions.
+
+${repName}
+${repPhone}
+${repEmail}`;
+
+        const to      = encodeURIComponent(clientEmail);
+        const bcc     = encodeURIComponent(bccEmail);
+        const subject = encodeURIComponent('Your Equipment Financing Quote');
+        const bodyEnc = encodeURIComponent(body);
+        const btn     = document.getElementById('emailClientBtn');
+        if (btn) btn.href = `mailto:${to}?bcc=${bcc}&subject=${subject}&body=${bodyEnc}`;
+    }
+    
+    function downloadQuotePDF() {
+        try {
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+
+        const setF = (style) => pdf.setFont('helvetica', style);
+        pdf.setFont('helvetica', 'normal');
+        
+        const sonomaTeal = [9, 31, 64];
+        const sonomaBlue = [24, 154, 214];
+        
+        // Header
+        pdf.setFillColor(...sonomaTeal);
+        pdf.rect(0, 0, 210, 40, 'F');
+        
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(24);
+        setF('bold');
+        pdf.text(currentLang === 'fr' ? 'SOUMISSION DE FINANCEMENT D\'ÉQUIPEMENT' : 'EQUIPMENT FINANCING QUOTE', 105, 18, { align: 'center' });
+        
+        pdf.setFontSize(12);
+        setF('normal');
+        pdf.text(currentLang === 'fr' ? 'Propulsé par Sonoma Capital Corp.' : 'Powered by Sonoma Capital Corp.', 105, 28, { align: 'center' });
+        
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(9);
+        pdf.text(`${currentLang === 'fr' ? 'Soumission #' : 'Quote #'}: ${quoteData.quoteNum}`, 15, 50);
+        pdf.text(`${currentLang === 'fr' ? 'Date de soumission' : 'Quote Date'}: ${quoteData.quoteDate}`, 15, 55);
+        
+        // Calculate and display quote expiry date
+        const quoteDate = new Date(quoteData.quoteDate);
+        const expiryDate = new Date(quoteDate);
+        expiryDate.setDate(expiryDate.getDate() + SETTINGS.quoteValidDays);
+        const expiryStr = expiryDate.toISOString().split('T')[0];
+        pdf.text(`${currentLang === 'fr' ? 'Valide jusqu\'au' : 'Valid Until'}: ${expiryStr}`, 15, 60);
+        
+        let yPos = 70;
+        
+        // Customer Info
+        pdf.setFontSize(11);
+        setF('bold');
+        pdf.setTextColor(...sonomaTeal);
+        pdf.text(currentLang === 'fr' ? 'Informations sur le client' : 'Customer Information', 15, yPos);
+        yPos += 7;
+        
+        pdf.setFontSize(9);
+        setF('normal');
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(9);
+        pdf.text(`${currentLang === 'fr' ? 'Nom légal de l\'entreprise' : 'Business Legal Name'}: ${quoteData.customerName}`, 15, yPos);
+        yPos += 6;
+        pdf.text(`${currentLang === 'fr' ? 'Contact' : 'Contact'}: ${quoteData.customerContactName}`, 15, yPos);
+        yPos += 6;
+        pdf.setFontSize(9);
+        setF('normal');
+        pdf.setTextColor(0, 0, 0);
+        const equipLabel = currentLang === 'fr' ? 'Équipement' : 'Equipment';
+        const descLines = pdf.splitTextToSize(`${equipLabel}: ${quoteData.equipmentDescription}`, 180);
+        pdf.text(descLines, 15, yPos);
+        yPos += descLines.length * 5;
+        yPos += 6;
+        pdf.setFontSize(9);
+        setF('normal');
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(`${currentLang === 'fr' ? 'Courriel' : 'Email'}: ${quoteData.customerEmail}`, 15, yPos);
+        yPos += 6;
+        pdf.text(`${currentLang === 'fr' ? 'Téléphone' : 'Phone'}: ${quoteData.customerPhone}`, 15, yPos);
+        yPos += 12;
+        
+        // Equipment Details
+        pdf.setFontSize(11);
+        setF('bold');
+        pdf.setTextColor(...sonomaTeal);
+        pdf.text(currentLang === 'fr' ? 'Détails de l\'équipement' : 'Equipment Details', 15, yPos);
+        yPos += 7;
+        
+        pdf.setFontSize(9);
+        setF('normal');
+        pdf.setTextColor(0, 0, 0);
+        
+        pdf.text('VetScalpel Quote Price (USD):', 15, yPos);
+        pdf.text('USD ' + (quoteData.equipmentCostUSD || 0).toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2}), 190, yPos, { align: 'right' });
+        yPos += 6;
+        pdf.text('Exchange Rate (USD/CAD):', 15, yPos);
+        pdf.text('1 USD = ' + (quoteData.fxRate || cadUsdRate).toFixed(4) + ' CAD  |  Rate Date: ' + (quoteData.fxRateDate || rateFetchDate || 'N/A'), 190, yPos, { align: 'right' });
+        yPos += 6;
+        pdf.text(currentLang === 'fr' ? 'Coût de l\'équipement (avant taxes) :' : 'Pre-tax Equipment Cost (CAD):', 15, yPos);
+        pdf.text('CAD ' + quoteData.equipmentCost.toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2}), 190, yPos, { align: 'right' });
+        yPos += 6;
+        
+        if (quoteData.hasWarranty && quoteData.warrantyCost > 0) {
+            pdf.text(currentLang === 'fr' ? 'Garantie prolongée (avant taxes) :' : 'Pre-tax Extended Warranty:', 15, yPos);
+            pdf.text(formatCurrency(quoteData.warrantyCost), 190, yPos, { align: 'right' });
+            yPos += 6;
+        }
+        
+        pdf.setDrawColor(200, 200, 200);
+        pdf.line(15, yPos, 195, yPos);
+        yPos += 6;
+        
+        setF('bold');
+        pdf.setFontSize(9);
+        pdf.text(currentLang === 'fr' ? 'Coût total de l\'équipement :' : 'Total Equipment Cost:', 15, yPos);
+        pdf.text(formatCurrency(quoteData.equipmentCost + (quoteData.warrantyCost || 0)), 190, yPos, { align: 'right' });
+        setF('normal');
+        pdf.setFontSize(9);
+        yPos += 10;
+        
+        // Payment table
+        const totalFinanced = quoteData.equipmentCost + (quoteData.warrantyCost || 0) + SETTINGS.docFee; // Doc fee is rolled into the financed amount at Sonoma
+        const rate = getRate(totalFinanced);
+        
+        pdf.setFontSize(11);
+        setF('bold');
+        pdf.setTextColor(...sonomaTeal);
+        pdf.text(currentLang === 'fr' ? 'Options de paiement' : 'Payment Options', 15, yPos);
+        yPos += 8;
+        
+        // Table header
+        pdf.setFillColor(...sonomaTeal);
+        pdf.rect(15, yPos - 5, 180, 8, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8);
+        setF('bold');
+        pdf.text(currentLang === 'fr' ? 'Terme' : 'Term', 20, yPos);
+        
+        // Adjust column width based on number of columns
+        const colWidth = (quoteData.paymentSchedule === 'both') ? 53 : 70;
+        let colPos = 65;
+        
+        if (quoteData.paymentSchedule === 'both' || quoteData.paymentSchedule === 'regular') {
+            pdf.text(currentLang === 'fr' ? 'Standard' : 'Standard', colPos, yPos);
+            if (quoteData.paymentSchedule === 'both') colPos += colWidth;
+        }
+        if (quoteData.paymentSchedule === 'both' || quoteData.paymentSchedule === 'deferred') {
+            pdf.text(currentLang === 'fr' ? 'Sauter 2 pmt.' : 'Skip 2 Payments', (quoteData.paymentSchedule === 'both' ? colPos : 125), yPos);
+            if (quoteData.paymentSchedule === 'both') colPos += colWidth;
+        }
+        if (quoteData.paymentSchedule === 'both' || quoteData.paymentSchedule === 'deferred90') {
+            pdf.text(currentLang === 'fr' ? 'Sauter 3 pmt.' : 'Skip 3 Payments', (quoteData.paymentSchedule === 'both' ? colPos : 125), yPos);
+        }
+        
+        yPos += 8;
+        pdf.setTextColor(0, 0, 0);
+        setF('normal');
+        
+        quoteData.selectedTerms.forEach((term, index) => {
+            const regularPayment = calculateMonthlyPayment(totalFinanced, rate, term);
+            const deferredPayment = calculateDeferredPayment(totalFinanced, rate, term);
+            const deferred90Payment = calculateDeferred90Payment(totalFinanced, rate, term);
+            
+            if (index % 2 === 0) {
+                pdf.setFillColor(245, 245, 245);
+                pdf.rect(15, yPos - 5, 180, 7, 'F');
+            }
+            
+            let colPos = 65;
+            const fontSize = (quoteData.paymentSchedule === 'both') ? 8 : 9;
+            pdf.setFontSize(fontSize);
+            pdf.text(`${term} ${currentLang === 'fr' ? 'mois' : 'months'}`, 20, yPos);
+            const subFontSize = (quoteData.paymentSchedule === 'both') ? 7 : 7.5;
+            
+            if (quoteData.paymentSchedule === 'both' || quoteData.paymentSchedule === 'regular') {
+                pdf.setFontSize(fontSize);
+                pdf.text(formatCurrency(regularPayment) + (currentLang === 'fr' ? ' + taxes' : ' + tax'), colPos, yPos);
+                pdf.setFontSize(subFontSize);
+                pdf.setTextColor(120,120,120);
+                pdf.text(currentLang === 'fr' ? `${term} paiements` : `${term} payments`, colPos, yPos + 4);
+                pdf.setTextColor(0,0,0);
+                pdf.setFontSize(fontSize);
+                if (quoteData.paymentSchedule === 'both') colPos += 53;
+            }
+            if (quoteData.paymentSchedule === 'both' || quoteData.paymentSchedule === 'deferred') {
+                setF('bold');
+                pdf.setTextColor(24, 154, 214);
+                pdf.text(formatCurrency(deferredPayment.regularPayment) + (currentLang === 'fr' ? ' + taxes' : ' + tax'), (quoteData.paymentSchedule === 'both' ? colPos : 125), yPos);
+                setF('normal');
+                pdf.setTextColor(120,120,120);
+                pdf.setFontSize(subFontSize);
+                pdf.text(currentLang === 'fr' ? `${deferredPayment.numberOfRegularPayments} paiements` : `${deferredPayment.numberOfRegularPayments} payments`, (quoteData.paymentSchedule === 'both' ? colPos : 125), yPos + 4);
+                pdf.setTextColor(0,0,0);
+                pdf.setFontSize(fontSize);
+                if (quoteData.paymentSchedule === 'both') colPos += 53;
+            }
+            if (quoteData.paymentSchedule === 'both' || quoteData.paymentSchedule === 'deferred90') {
+                setF('bold');
+                pdf.setTextColor(24, 154, 214);
+                pdf.text(formatCurrency(deferred90Payment.regularPayment) + (currentLang === 'fr' ? ' + taxes' : ' + tax'), (quoteData.paymentSchedule === 'both' ? colPos : 125), yPos);
+                setF('normal');
+                pdf.setTextColor(120,120,120);
+                pdf.setFontSize(subFontSize);
+                pdf.text(currentLang === 'fr' ? `${deferred90Payment.numberOfRegularPayments} paiements` : `${deferred90Payment.numberOfRegularPayments} payments`, (quoteData.paymentSchedule === 'both' ? colPos : 125), yPos + 4);
+                pdf.setTextColor(0,0,0);
+                pdf.setFontSize(fontSize);
+            }
+            
+            yPos += 10;
+        });
+
+
+        
+        yPos += 3;
+
+        // Lease Buyout - directly below table
+        setF('bold');
+        pdf.setFontSize(8);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(currentLang === 'fr' ? 'Rachat de location : 100,00 $' : 'Lease Buyout: $100.00', 15, yPos);
+        setF('normal');
+        pdf.setTextColor(0, 0, 0);
+        yPos += 5;
+
+        // Admin fee note + disclaimers
+        pdf.setFontSize(7.5);
+        setF('italic');
+        pdf.setTextColor(100, 100, 100);
+        pdf.text(currentLang === 'fr' ? '* Des frais d\'administration de 295 $ sont inclus dans les paiements mensuels indiqués.' : '* A $295 administration fee is included in the monthly payments quoted.', 15, yPos);
+        yPos += 4;
+
+        const disc1Text = '** CAD payments are estimated using the Bank of Canada rate of 1 USD = ' + (quoteData.fxRate || cadUsdRate).toFixed(4) + ' CAD as of ' + (quoteData.fxRateDate || 'quote date') + ' and are for reference only. The final CAD amount will be based on the posted exchange rate at time of funding.';
+        const disc1Lines = pdf.splitTextToSize(disc1Text, 180);
+        disc1Lines.forEach((line, i) => { pdf.text(line, 15, yPos + (i * 4)); });
+        yPos += disc1Lines.length * 4 + 2;
+
+        const disc2Text = '*** This quote is subject to credit approval. The final financing rate and terms will be confirmed at the time of approval. Applicable taxes will be added to the financed amount.';
+        const disc2Lines = pdf.splitTextToSize(disc2Text, 180);
+        disc2Lines.forEach((line, i) => { pdf.text(line, 15, yPos + (i * 4)); });
+        yPos += disc2Lines.length * 4 + 4;
+
+        setF('normal');
+        pdf.setTextColor(0, 0, 0);
+
+        // Rep contact section
+        pdf.setFontSize(11);
+        setF('bold');
+        pdf.setTextColor(...sonomaTeal);
+        pdf.text(currentLang === 'fr' ? 'Votre contact VetScalpel' : 'Your VetScalpel Contact', 15, yPos);
+        yPos += 6;
+
+        setF('normal');
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(9);
+        pdf.text(quoteData.repName, 15, yPos);
+        yPos += 5;
+        pdf.text('Consultant and Trainer, Canada', 15, yPos);
+        yPos += 5;
+        pdf.text('VetScalpel Surgical Lasers by Aesculight', 15, yPos);
+        yPos += 5;
+        pdf.text(quoteData.repEmail, 15, yPos);
+        yPos += 5;
+        pdf.text('Call/Text/WhatsApp: ' + quoteData.repPhone, 15, yPos);
+        yPos += 8;
+
+
+        
+        pdf.save(`Vendor_Financing_Quote_${quoteData.customerName.replace(/\s+/g, '_')}.pdf`);
+        } catch(err) {
+            console.error('PDF generation error:', err);
+            alert('PDF generation failed: ' + err.message);
+        }
+    }
+    
+    // Auto-fill today's date and rep info on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('quoteDate').value = today;
+        
+        // Pre-fill rep info
+        document.getElementById('repName').value = SETTINGS.defaultRepName;
+        document.getElementById('repEmail').value = SETTINGS.defaultRepEmail;
+        fetchExchangeRate();
+        document.getElementById('repPhone').value = SETTINGS.defaultRepPhone;
+    });
+    </script>
+</body>
+</html>
